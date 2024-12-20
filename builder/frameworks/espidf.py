@@ -66,21 +66,8 @@ IDF5 = (
 )
 IDF_ENV_VERSION = "1.0.0"
 FRAMEWORK_DIR = platform.get_package_dir("framework-espidf")
-TOOLCHAIN_DIR = platform.get_package_dir(
-    "toolchain-riscv32-esp"
-    if mcu in ("esp32c3", "esp32c6")
-    else (
-        (
-            "toolchain-xtensa-esp-elf"
-            if "arduino" not in env.subst("$PIOFRAMEWORK")
-            else "toolchain-xtensa-%s" % mcu
-        )
-    )
-)
-
 
 assert os.path.isdir(FRAMEWORK_DIR)
-assert os.path.isdir(TOOLCHAIN_DIR)
 
 # The latest IDF uses a standalone GDB package which requires at least PlatformIO 6.1.11
 if (
@@ -139,15 +126,13 @@ def is_cmake_reconfigure_required(cmake_api_reply_dir):
     ]
     cmake_preconf_dir = os.path.join(BUILD_DIR, "config")
     deafult_sdk_config = os.path.join(PROJECT_DIR, "sdkconfig.defaults")
-    idf_deps_lock = os.path.join(PROJECT_DIR, "dependencies.lock")
-    ninja_buildfile = os.path.join(BUILD_DIR, "build.ninja")
 
     for d in (cmake_api_reply_dir, cmake_preconf_dir):
         if not os.path.isdir(d) or not os.listdir(d):
             return True
     if not os.path.isfile(cmake_cache_file):
         return True
-    if not os.path.isfile(ninja_buildfile):
+    if not os.path.isfile(os.path.join(BUILD_DIR, "build.ninja")):
         return True
     if not os.path.isfile(SDKCONFIG_PATH) or os.path.getmtime(
         SDKCONFIG_PATH
@@ -156,10 +141,6 @@ def is_cmake_reconfigure_required(cmake_api_reply_dir):
     if os.path.isfile(deafult_sdk_config) and os.path.getmtime(
         deafult_sdk_config
     ) > os.path.getmtime(cmake_cache_file):
-        return True
-    if os.path.isfile(idf_deps_lock) and os.path.getmtime(
-        idf_deps_lock
-    ) > os.path.getmtime(ninja_buildfile):
         return True
     if any(
         os.path.getmtime(f) > os.path.getmtime(cmake_cache_file)
@@ -256,16 +237,15 @@ def get_cmake_code_model(src_dir, build_dir, extra_args=None):
 def populate_idf_env_vars(idf_env):
     idf_env["IDF_PATH"] = fs.to_unix_path(FRAMEWORK_DIR)
     additional_packages = [
-        os.path.join(TOOLCHAIN_DIR, "bin"),
         platform.get_package_dir("tool-ninja"),
         os.path.join(platform.get_package_dir("tool-cmake"), "bin"),
         os.path.dirname(get_python_exe()),
     ]
 
-    if mcu not in ("esp32c3", "esp32c6"):
-        additional_packages.append(
-            os.path.join(platform.get_package_dir("toolchain-esp32ulp"), "bin"),
-        )
+    # if mcu not in ("esp32c3", "esp32c6"):
+    #     additional_packages.append(
+    #         os.path.join(platform.get_package_dir("toolchain-esp32ulp"), "bin"),
+    #     )
 
     if IS_WINDOWS:
         additional_packages.append(platform.get_package_dir("tool-mconf"))
@@ -276,13 +256,6 @@ def populate_idf_env_vars(idf_env):
     # underlying build system. Unsetting it is a safe workaround.
     if "IDF_TOOLS_PATH" in idf_env:
         del idf_env["IDF_TOOLS_PATH"]
-
-    # Unlike IDF, PlatformIO allows multiple targets per environment. This
-    # difference may cause CMake configuration errors if the automatically
-    # handled folder "managed_components" was modified on the disk by
-    # a previous target
-    if board.get("build.esp-idf.overwrite_managed_components", "yes") == "yes":
-        idf_env["IDF_COMPONENT_OVERWRITE_MANAGED_COMPONENTS"] = "1"
 
 
 def get_target_config(project_configs, target_index, cmake_api_reply_dir):
@@ -1428,41 +1401,42 @@ generate_default_component()
 # Generate final linker script
 #
 
-if not board.get("build.ldscript", ""):
-    initial_ld_script = board.get("build.esp-idf.ldscript", os.path.join(
-        FRAMEWORK_DIR,
-        "components",
-        "esp_system",
-        "ld",
-        idf_variant,
-        "memory.ld.in",
-    ))
+# TODO: LD?
+# if not board.get("build.ldscript", ""):
+#     initial_ld_script = board.get("build.esp-idf.ldscript", os.path.join(
+#         FRAMEWORK_DIR,
+#         "components",
+#         "esp_system",
+#         "ld",
+#         idf_variant,
+#         "memory.ld.in",
+#     ))
 
-    framework_version = [int(v) for v in get_framework_version().split(".")]
-    if framework_version[:2] > [5, 2]:
-        initial_ld_script = preprocess_linker_file(
-            initial_ld_script,
-            os.path.join(
-                BUILD_DIR,
-                "esp-idf",
-                "esp_system",
-                "ld",
-                "memory.ld.in",
-            )
-        )
+#     framework_version = [int(v) for v in get_framework_version().split(".")]
+#     if framework_version[:2] > [5, 2]:
+#         initial_ld_script = preprocess_linker_file(
+#             initial_ld_script,
+#             os.path.join(
+#                 BUILD_DIR,
+#                 "esp-idf",
+#                 "esp_system",
+#                 "ld",
+#                 "memory.ld.in",
+#             )
+#         )
 
-    linker_script = env.Command(
-        os.path.join("$BUILD_DIR", "memory.ld"),
-        initial_ld_script,
-        env.VerboseAction(
-            '$CC -I"$BUILD_DIR/config" -I"%s" -C -P -x c -E $SOURCE -o $TARGET'
-            % os.path.join(FRAMEWORK_DIR, "components", "esp_system", "ld"),
-            "Generating LD script $TARGET",
-        ),
-    )
+#     linker_script = env.Command(
+#         os.path.join("$BUILD_DIR", "memory.ld"),
+#         initial_ld_script,
+#         env.VerboseAction(
+#             '$CC -I"$BUILD_DIR/config" -I"%s" -C -P -x c -E $SOURCE -o $TARGET'
+#             % os.path.join(FRAMEWORK_DIR, "components", "esp_system", "ld"),
+#             "Generating LD script $TARGET",
+#         ),
+#     )
 
-    env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", linker_script)
-    env.Replace(LDSCRIPT_PATH="memory.ld")
+#     env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", linker_script)
+#     env.Replace(LDSCRIPT_PATH="memory.ld")
 
 
 #
@@ -1521,6 +1495,7 @@ project_codemodel = get_cmake_code_model(
     BUILD_DIR,
     [
         "-DIDF_TARGET=" + idf_variant,
+        "-DCONFIG_IDF_TARGET_LINUX=1",
         "-DPYTHON_DEPS_CHECKED=1",
         "-DEXTRA_COMPONENT_DIRS:PATH=" + ";".join(extra_components),
         "-DPYTHON=" + get_python_exe(),
@@ -1559,10 +1534,11 @@ if project_target_name != "__idf_main" and "__idf_main" in target_configs:
     )
     env.Exit(1)
 
-project_ld_scipt = generate_project_ld_script(
-    sdk_config, [project_target_name, "__pio_env"]
-)
-env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", project_ld_scipt)
+# TODO: LD?
+# project_ld_scipt = generate_project_ld_script(
+#     sdk_config, [project_target_name, "__pio_env"]
+# )
+# env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", project_ld_scipt)
 
 elf_config = get_project_elf(target_configs)
 default_config_name = find_default_component(target_configs)
@@ -1578,8 +1554,9 @@ if not elf_config:
     sys.stderr.write("Error: Couldn't load the main firmware target of the project\n")
     env.Exit(1)
 
-for component_config in framework_components_map.values():
-    env.Depends(project_ld_scipt, component_config["lib"])
+# TODO: LD?
+# for component_config in framework_components_map.values():
+#     env.Depends(project_ld_scipt, component_config["lib"])
 
 project_config = target_configs.get(project_target_name, {})
 default_config = target_configs.get(default_config_name, {})
@@ -1592,7 +1569,9 @@ app_includes = get_app_includes(elf_config)
 # Compile bootloader
 #
 
-env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", build_bootloader(sdk_config))
+
+# TODO: LD?
+# env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", build_bootloader(sdk_config))
 
 #
 # Target: ESP-IDF menuconfig
@@ -1778,26 +1757,26 @@ if board_flash_size != idf_flash_size:
 # To embed firmware checksum a special argument for esptool.py is required
 #
 
-extra_elf2bin_flags = "--elf-sha256-offset 0xb0"
-# https://github.com/espressif/esp-idf/blob/master/components/esptool_py/project_include.cmake#L58
-# For chips that support configurable MMU page size feature
-# If page size is configured to values other than the default "64KB" in menuconfig,
-mmu_page_size = "64KB"
-if sdk_config.get("SOC_MMU_PAGE_SIZE_CONFIGURABLE", False):
-    if board_flash_size == "2MB":
-        mmu_page_size = "32KB"
-    elif board_flash_size == "1MB":
-        mmu_page_size = "16KB"
+# extra_elf2bin_flags = "--elf-sha256-offset 0xb0"
+# # https://github.com/espressif/esp-idf/blob/master/components/esptool_py/project_include.cmake#L58
+# # For chips that support configurable MMU page size feature
+# # If page size is configured to values other than the default "64KB" in menuconfig,
+# mmu_page_size = "64KB"
+# if sdk_config.get("SOC_MMU_PAGE_SIZE_CONFIGURABLE", False):
+#     if board_flash_size == "2MB":
+#         mmu_page_size = "32KB"
+#     elif board_flash_size == "1MB":
+#         mmu_page_size = "16KB"
 
-if mmu_page_size != "64KB":
-    extra_elf2bin_flags += " --flash-mmu-page-size %s" % mmu_page_size
+# if mmu_page_size != "64KB":
+#     extra_elf2bin_flags += " --flash-mmu-page-size %s" % mmu_page_size
 
-action = copy.deepcopy(env["BUILDERS"]["ElfToBin"].action)
+# action = copy.deepcopy(env["BUILDERS"]["ElfToBin"].action)
 
-action.cmd_list = env["BUILDERS"]["ElfToBin"].action.cmd_list.replace(
-    "-o", extra_elf2bin_flags + " -o"
-)
-env["BUILDERS"]["ElfToBin"].action = action
+# action.cmd_list = env["BUILDERS"]["ElfToBin"].action.cmd_list.replace(
+#     "-o", extra_elf2bin_flags + " -o"
+# )
+# env["BUILDERS"]["ElfToBin"].action = action
 
 #
 # Compile ULP sources in 'ulp' folder

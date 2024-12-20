@@ -1,17 +1,3 @@
-# Copyright 2014-present PlatformIO <contact@platformio.org>
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import os
 import urllib
 import sys
@@ -24,136 +10,8 @@ from platformio.public import PlatformBase, to_unix_path
 IS_WINDOWS = sys.platform.startswith("win")
 
 
-class Espressif32Platform(PlatformBase):
+class Esp32hostedPlatform(PlatformBase):
     def configure_default_packages(self, variables, targets):
-        if not variables.get("board"):
-            return super().configure_default_packages(variables, targets)
-
-        board_config = self.board_config(variables.get("board"))
-        mcu = variables.get("board_build.mcu", board_config.get("build.mcu", "esp32"))
-        frameworks = variables.get("pioframework", [])
-
-        if "buildfs" in targets:
-            filesystem = variables.get("board_build.filesystem", "spiffs")
-            if filesystem == "littlefs":
-                self.packages["tool-mklittlefs"]["optional"] = False
-            elif filesystem == "fatfs":
-                self.packages["tool-mkfatfs"]["optional"] = False
-            else:
-                self.packages["tool-mkspiffs"]["optional"] = False
-        if variables.get("upload_protocol"):
-            self.packages["tool-openocd-esp32"]["optional"] = False
-        if os.path.isdir("ulp"):
-            self.packages["toolchain-esp32ulp"]["optional"] = False
-
-        # Currently only Arduino Nano ESP32 uses the dfuutil tool as uploader
-        if variables.get("board") == "arduino_nano_esp32":
-            self.packages["tool-dfuutil-arduino"]["optional"] = False
-        else:
-            del self.packages["tool-dfuutil-arduino"]
-
-        build_core = variables.get(
-            "board_build.core", board_config.get("build.core", "arduino")
-        ).lower()
-
-        if frameworks == ["arduino"] and build_core == "esp32":
-            # In case the upstream Arduino framework is specified in the configuration
-            # file then we need to dynamically extract toolchain versions from the
-            # Arduino index file. This feature can be disabled via a special option:
-            if (
-                variables.get(
-                    "board_build.arduino.upstream_packages",
-                    board_config.get("build.arduino.upstream_packages", "yes"),
-                ).lower()
-                == "yes"
-            ):
-                package_version = self.packages["framework-arduinoespressif32"][
-                    "version"
-                ]
-
-                url_items = urllib.parse.urlparse(package_version)
-                # Only GitHub repositories support dynamic packages
-                if (
-                    url_items.scheme in ("http", "https")
-                    and url_items.netloc.startswith("github")
-                    and url_items.path.endswith(".git")
-                ):
-                    try:
-                        self.configure_upstream_arduino_packages(url_items)
-                    except Exception as e:
-                        sys.stderr.write(
-                            "Error! Failed to extract upstream toolchain"
-                            "configurations:\n%s\n" % str(e)
-                        )
-                        sys.stderr.write(
-                            "You can disable this feature via the "
-                            "`board_build.arduino.upstream_packages = no` setting in "
-                            "your `platformio.ini` file.\n"
-                        )
-                        sys.exit(1)
-
-        if "espidf" in frameworks:
-            if frameworks == ["espidf"]:
-                # Starting from v12, Espressif's toolchains are shipped without
-                # bundled GDB. Instead, it's distributed as separate packages for Xtensa
-                # and RISC-V targets. Currently only IDF depends on the latest toolchain
-                for gdb_package in ("tool-xtensa-esp-elf-gdb", "tool-riscv32-esp-elf-gdb"):
-                    self.packages[gdb_package]["optional"] = False
-                    if IS_WINDOWS:
-                        # Note: On Windows GDB v12 is not able to
-                        # launch a GDB server in pipe mode while v11 works fine
-                        self.packages[gdb_package]["version"] = "~11.2.0"
-
-            # Common packages for IDF and mixed Arduino+IDF projects
-            for p in self.packages:
-                if p in ("tool-cmake", "tool-ninja", "toolchain-esp32ulp"):
-                    self.packages[p]["optional"] = False
-                elif p in ("tool-mconf", "tool-idf") and IS_WINDOWS:
-                    self.packages[p]["optional"] = False
-
-            if "arduino" in frameworks:
-                # Downgrade the IDF version for mixed Arduino+IDF projects
-                self.packages["framework-espidf"]["version"] = "~3.40407.0"
-                # Delete the latest toolchain packages from config
-                self.packages.pop("toolchain-xtensa-esp-elf", None)
-            else:
-                # Disable old toolchain packages and use the latest
-                # available for IDF v5.0
-                for target in (
-                    "xtensa-esp32",
-                    "xtensa-esp32s2",
-                    "xtensa-esp32s3",
-                ):
-                    self.packages.pop("toolchain-%s" % target, None)
-
-                if mcu in ("esp32c3", "esp32c6"):
-                    self.packages.pop("toolchain-xtensa-esp-elf", None)
-                else:
-                    self.packages["toolchain-xtensa-esp-elf"][
-                        "optional"
-                    ] = False
-
-                # Pull the latest RISC-V toolchain from PlatformIO organization
-                self.packages["toolchain-riscv32-esp"]["owner"] = "platformio"
-                self.packages["toolchain-riscv32-esp"][
-                    "version"
-                ] = "13.2.0+20240530"
-
-        if "arduino" in frameworks:
-            # Disable standalone GDB packages for Arduino and Arduino/IDF projects
-            for gdb_package in ("tool-xtensa-esp-elf-gdb", "tool-riscv32-esp-elf-gdb"):
-                self.packages.pop(gdb_package, None)
-
-            for available_mcu in ("esp32", "esp32s2", "esp32s3"):
-                if available_mcu == mcu:
-                    self.packages["toolchain-xtensa-%s" % mcu]["optional"] = False
-                else:
-                    self.packages.pop("toolchain-xtensa-%s" % available_mcu, None)
-
-        if mcu in ("esp32s2", "esp32s3", "esp32c3", "esp32c6"):
-            # RISC-V based toolchain for ESP32C3, ESP32C6 ESP32S2, ESP32S3 ULP
-            self.packages["toolchain-riscv32-esp"]["optional"] = False
-
         return super().configure_default_packages(variables, targets)
 
     def get_boards(self, id_=None):
@@ -414,3 +272,4 @@ class Espressif32Platform(PlatformBase):
             self.configure_arduino_toolchains(
                 self.download_remote_package_index(url_items)
             )
+ # type: ignore
