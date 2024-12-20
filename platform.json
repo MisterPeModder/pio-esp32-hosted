@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/MisterPeModder/pio-esp32-hosted.git"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "frameworks": {
     "espidf": {
       "package": "framework-espidf",
@@ -27,7 +27,6 @@
       "version": "~3.16.0"
     },
     "tool-ninja": {
-      "optional": true,
       "owner": "platformio",
       "version": "^1.7.0"
     }
