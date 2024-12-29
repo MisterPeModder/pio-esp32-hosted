@@ -34,7 +34,6 @@ class Esp32hostedPlatform(PlatformBase):
 
         # debug tools
         debug = board.manifest.get("debug", {})
-        non_debug_protocols = ["esptool", "espota"]
         supported_debug_tools = [
             "cmsis-dap",
             "esp-prog",
@@ -67,101 +66,11 @@ class Esp32hostedPlatform(PlatformBase):
         if "tools" not in debug:
             debug["tools"] = {}
 
-        for link in upload_protocols:
-            if link in non_debug_protocols or link in debug["tools"]:
-                continue
-
-            if link in ("jlink", "cmsis-dap"):
-                openocd_interface = link
-            elif link in ("esp-prog", "ftdi"):
-                if board.id == "esp32-s2-kaluga-1":
-                    openocd_interface = "ftdi/esp32s2_kaluga_v1"
-                else:
-                    openocd_interface = "ftdi/esp32_devkitj_v1"
-            elif link == "esp-bridge":
-                openocd_interface = "esp_usb_bridge"
-            elif link == "esp-builtin":
-                openocd_interface = "esp_usb_jtag"
-            else:
-                openocd_interface = "ftdi/" + link
-
-            server_args = [
-                "-s",
-                "$PACKAGE_DIR/share/openocd/scripts",
-                "-f",
-                "interface/%s.cfg" % openocd_interface,
-                "-f",
-                "%s/%s"
-                % (
-                    ("target", debug.get("openocd_target"))
-                    if "openocd_target" in debug
-                    else ("board", debug.get("openocd_board"))
-                ),
-            ]
-
-            debug["tools"][link] = {
-                "server": {
-                    "package": "tool-openocd-esp32",
-                    "executable": "bin/openocd",
-                    "arguments": server_args,
-                },
-                "init_break": "thb app_main",
-                "init_cmds": [
-                    "define pio_reset_halt_target",
-                    "   monitor reset halt",
-                    "   flushregs",
-                    "end",
-                    "define pio_reset_run_target",
-                    "   monitor reset",
-                    "end",
-                    "target extended-remote $DEBUG_PORT",
-                    "$LOAD_CMDS",
-                    "pio_reset_halt_target",
-                    "$INIT_BREAK",
-                ],
-                "onboard": link in debug.get("onboard_tools", []),
-                "default": link == debug.get("default_tool"),
-            }
-
-            # Avoid erasing Arduino Nano bootloader by preloading app binary
-            if board.id == "arduino_nano_esp32":
-                debug["tools"][link]["load_cmds"] = "preload"
-
         board.manifest["debug"] = debug
         return board
 
-    def configure_debug_session(self, debug_config):
-        build_extra_data = debug_config.build_data.get("extra", {})
-        flash_images = build_extra_data.get("flash_images", [])
-
-        if "openocd" in (debug_config.server or {}).get("executable", ""):
-            debug_config.server["arguments"].extend(
-                ["-c", "adapter speed %s" % (debug_config.speed or "5000")]
-            )
-
-        ignore_conds = [
-            debug_config.load_cmds != ["load"],
-            not flash_images,
-            not all([os.path.isfile(item["path"]) for item in flash_images]),
-        ]
-
-        if any(ignore_conds):
-            return
-
-        load_cmds = [
-            'monitor program_esp "{{{path}}}" {offset} verify'.format(
-                path=to_unix_path(item["path"]), offset=item["offset"]
-            )
-            for item in flash_images
-        ]
-        load_cmds.append(
-            'monitor program_esp "{%s.bin}" %s verify'
-            % (
-                to_unix_path(debug_config.build_data["prog_path"][:-4]),
-                build_extra_data.get("application_offset", "0x10000"),
-            )
-        )
-        debug_config.load_cmds = load_cmds
+    def is_embedded(self):
+        return False
 
     @staticmethod
     def extract_toolchain_versions(tool_deps):

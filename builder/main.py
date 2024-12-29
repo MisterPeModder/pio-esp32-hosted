@@ -24,7 +24,9 @@ if get_systype() == "darwin_x86_64":
 
 
 target_bin = env.BuildProgram()
-exec_target = env.AddPlatformTarget("exec", target_bin, [ env.VerboseAction("./$SOURCE", "Erasing...") ], "Execute the built program")
+exec_target = env.AddPlatformTarget("exec", target_bin, [ env.VerboseAction("./$SOURCE", "Executing") ], "Execute the built program")
+upload_target = env.AddPlatformTarget("upload", target_bin, [ env.VerboseAction("./$SOURCE", "Executing") ], "Upload/execute the built program")
+monitor_target = env.AddPlatformTarget("monitor", target_bin, [ env.VerboseAction("./$SOURCE", "Executing") ], "Monitor/execute the built program")
 
 #
 # Target: Define targets
